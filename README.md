@@ -49,7 +49,10 @@ An [MCP server](https://modelcontextprotocol.io/introduction) implementation tha
   - Example: `https://search.example.com`
 
 #### Optional
-- **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials for password-protected instances
+- **`AUTH_USERNAME`** / **`AUTH_PASSWORD`**: HTTP Basic Auth credentials. When set, these credentials:
+  - Secure the MCP HTTP endpoint (when `MCP_HTTP_PORT` is enabled)
+  - Authenticate to your SearXNG instance (if it requires authentication)
+  - Note: If your SearXNG instance does NOT require auth, these credentials are still sent with requests to it
 - **`USER_AGENT`**: Custom User-Agent header (e.g., `MyBot/1.0`)
 - **`HTTP_PROXY`** / **`HTTPS_PROXY`**: Proxy URLs for routing traffic
   - Format: `http://[username:password@]proxy.host:port`
@@ -222,19 +225,21 @@ Create a `docker-compose.yml` file:
 services:
   mcp-searxng:
     image: isokoliuk/mcp-searxng:latest
-    stdin_open: true
+    network_mode: "host"
     environment:
       - SEARXNG_URL=YOUR_SEARXNG_INSTANCE_URL
-      # Add any optional variables as needed:
-      # - AUTH_USERNAME=your_username
-      # - AUTH_PASSWORD=your_password
-      # - USER_AGENT=MyBot/1.0
-      # - HTTP_PROXY=http://proxy.company.com:8080
-      # - HTTPS_PROXY=http://proxy.company.com:8080
-      # - NO_PROXY=localhost,127.0.0.1,.local,.internal
+      - AUTH_USERNAME=your_username
+      - AUTH_PASSWORD=your_password
+      - USER_AGENT=MyBot/1.0
+      - HTTP_PROXY=http://proxy.company.com:8080
+      - HTTPS_PROXY=http://proxy.company.com:8080
+      - NO_PROXY=localhost,127.0.0.1,.local,.internal
+    ports:
+      - "3000:3000"  # Expose MCP HTTP endpoint (adjust port as needed)
+    restart: unless-stopped
 ```
 
-Then configure your MCP client:
+For Docker Compose with MCP clients that use the command-based configuration:
 
 ```json
 {
@@ -242,6 +247,21 @@ Then configure your MCP client:
     "searxng": {
       "command": "docker-compose",
       "args": ["run", "--rm", "mcp-searxng"]
+    }
+  }
+}
+```
+
+For clients that support Custom Headers (like llama.cpp):
+
+```json
+{
+  "mcpServers": {
+    "searxng": {
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Basic dXNlcjpwYXNz"
+      }
     }
   }
 }
@@ -269,11 +289,32 @@ The server supports both STDIO (default) and HTTP transports. Set `MCP_HTTP_PORT
 - **MCP Protocol**: `POST/GET/DELETE /mcp` 
 - **Health Check**: `GET /health`
 
-**Testing:**
+**Authentication:**
+
+When `AUTH_USERNAME` and `AUTH_PASSWORD` are set, the HTTP endpoint requires Basic Authentication for all requests except health checks.
+
+**Testing with Authentication:**
 ```bash
-MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 mcp-searxng
+MCP_HTTP_PORT=3000 SEARXNG_URL=http://localhost:8080 AUTH_USERNAME=user AUTH_PASSWORD=pass mcp-searxng
 curl http://localhost:3000/health
+curl -u user:pass http://localhost:3000/mcp -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"initialize","params":...}'
 ```
+
+**Using with MCP Clients:**
+
+For clients that support Custom Headers (like llama.cpp), add the Authorization header:
+
+```json
+{
+  "url": "http://localhost:3000/mcp",
+  "headers": {
+    "Authorization": "Basic dXNlcjpwYXNz"
+  }
+}
+```
+
+Where `dXNlcjpwYXNz` is the Base64 encoding of `user:pass`.
+
 
 ## Running evals
 
