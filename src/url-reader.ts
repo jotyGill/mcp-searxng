@@ -12,7 +12,7 @@ import {
   createTimeoutError,
   createEmptyContentWarning,
   createUnexpectedError,
-  type ErrorContext
+  type ErrorContext,
 } from "./error-handler.js";
 
 interface PaginationOptions {
@@ -23,20 +23,29 @@ interface PaginationOptions {
   readHeadings?: boolean;
 }
 
-function applyCharacterPagination(content: string, startChar: number = 0, maxLength?: number): string {
+function applyCharacterPagination(
+  content: string,
+  startChar: number = 0,
+  maxLength?: number,
+): string {
   if (startChar >= content.length) {
     return "";
   }
 
   const start = Math.max(0, startChar);
-  const end = maxLength ? Math.min(content.length, start + maxLength) : content.length;
+  const end = maxLength
+    ? Math.min(content.length, start + maxLength)
+    : content.length;
 
   return content.slice(start, end);
 }
 
-function extractSection(markdownContent: string, sectionHeading: string): string {
-  const lines = markdownContent.split('\n');
-  const sectionRegex = new RegExp(`^#{1,6}\s*.*${sectionHeading}.*$`, 'i');
+function extractSection(
+  markdownContent: string,
+  sectionHeading: string,
+): string {
+  const lines = markdownContent.split("\n");
+  const sectionRegex = new RegExp(`^#{1,6}\s*.*${sectionHeading}.*$`, "i");
 
   let startIndex = -1;
   let currentLevel = 0;
@@ -46,7 +55,7 @@ function extractSection(markdownContent: string, sectionHeading: string): string
     const line = lines[i];
     if (sectionRegex.test(line)) {
       startIndex = i;
-      currentLevel = (line.match(/^#+/) || [''])[0].length;
+      currentLevel = (line.match(/^#+/) || [""])[0].length;
       break;
     }
   }
@@ -66,11 +75,13 @@ function extractSection(markdownContent: string, sectionHeading: string): string
     }
   }
 
-  return lines.slice(startIndex, endIndex).join('\n');
+  return lines.slice(startIndex, endIndex).join("\n");
 }
 
 function extractParagraphRange(markdownContent: string, range: string): string {
-  const paragraphs = markdownContent.split('\n\n').filter(p => p.trim().length > 0);
+  const paragraphs = markdownContent
+    .split("\n\n")
+    .filter((p) => p.trim().length > 0);
 
   // Parse range (e.g., "1-5", "3", "10-")
   const rangeMatch = range.match(/^(\d+)(?:-(\d*))?$/);
@@ -90,26 +101,29 @@ function extractParagraphRange(markdownContent: string, range: string): string {
     return paragraphs[start] || "";
   } else if (endStr === "") {
     // Range to end (e.g., "10-")
-    return paragraphs.slice(start).join('\n\n');
+    return paragraphs.slice(start).join("\n\n");
   } else {
     // Specific range (e.g., "1-5")
     const end = parseInt(endStr);
-    return paragraphs.slice(start, end).join('\n\n');
+    return paragraphs.slice(start, end).join("\n\n");
   }
 }
 
 function extractHeadings(markdownContent: string): string {
-  const lines = markdownContent.split('\n');
-  const headings = lines.filter(line => /^#{1,6}\s/.test(line));
+  const lines = markdownContent.split("\n");
+  const headings = lines.filter((line) => /^#{1,6}\s/.test(line));
 
   if (headings.length === 0) {
     return "No headings found in the content.";
   }
 
-  return headings.join('\n');
+  return headings.join("\n");
 }
 
-function applyPaginationOptions(markdownContent: string, options: PaginationOptions): string {
+function applyPaginationOptions(
+  markdownContent: string,
+  options: PaginationOptions,
+): string {
   let result = markdownContent;
 
   // Apply heading extraction first if requested
@@ -135,7 +149,11 @@ function applyPaginationOptions(markdownContent: string, options: PaginationOpti
 
   // Apply character-based pagination last
   if (options.startChar !== undefined || options.maxLength !== undefined) {
-    result = applyCharacterPagination(result, options.startChar, options.maxLength);
+    result = applyCharacterPagination(
+      result,
+      options.startChar,
+      options.maxLength,
+    );
   }
 
   return result;
@@ -145,7 +163,7 @@ export async function fetchAndConvertToMarkdown(
   server: Server,
   url: string,
   timeoutMs: number = 10000,
-  paginationOptions: PaginationOptions = {}
+  paginationOptions: PaginationOptions = {},
 ) {
   const startTime = Date.now();
   logMessage(server, "info", `Fetching URL: ${url}`);
@@ -154,12 +172,19 @@ export async function fetchAndConvertToMarkdown(
   const cachedEntry = urlCache.get(url);
   if (cachedEntry) {
     logMessage(server, "info", `Using cached content for URL: ${url}`);
-    const result = applyPaginationOptions(cachedEntry.markdownContent, paginationOptions);
+    const result = applyPaginationOptions(
+      cachedEntry.markdownContent,
+      paginationOptions,
+    );
     const duration = Date.now() - startTime;
-    logMessage(server, "info", `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`);
+    logMessage(
+      server,
+      "info",
+      `Processed cached URL: ${url} (${result.length} chars in ${duration}ms)`,
+    );
     return result;
   }
-  
+
   // Validate URL format
   let parsedUrl: URL;
   try {
@@ -177,6 +202,32 @@ export async function fetchAndConvertToMarkdown(
     // Prepare request options with proxy support
     const requestOptions: RequestInit = {
       signal: controller.signal,
+      headers: {},
+    };
+
+    // Add User-Agent header if configured
+    const userAgent = process.env.USER_AGENT;
+    if (userAgent) {
+      requestOptions.headers = {
+        ...requestOptions.headers,
+        "User-Agent": userAgent,
+      };
+    }
+
+    // Add common browser headers to reduce bot detection
+    requestOptions.headers = {
+      ...requestOptions.headers,
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Encoding": "gzip, deflate, br",
+      Connection: "keep-alive",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1",
+      "Cache-Control": "max-age=0",
     };
 
     // Add proxy dispatcher if proxy is configured
@@ -194,7 +245,7 @@ export async function fetchAndConvertToMarkdown(
       const context: ErrorContext = {
         url,
         proxyAgent: !!proxyAgent,
-        timeout: timeoutMs
+        timeout: timeoutMs,
       };
       throw createNetworkError(error, context);
     }
@@ -204,11 +255,16 @@ export async function fetchAndConvertToMarkdown(
       try {
         responseBody = await response.text();
       } catch {
-        responseBody = '[Could not read response body]';
+        responseBody = "[Could not read response body]";
       }
 
       const context: ErrorContext = { url };
-      throw createServerError(response.status, response.statusText, responseBody, context);
+      throw createServerError(
+        response.status,
+        response.statusText,
+        responseBody,
+        context,
+      );
     }
 
     // Retrieve HTML content
@@ -217,8 +273,8 @@ export async function fetchAndConvertToMarkdown(
       htmlContent = await response.text();
     } catch (error: any) {
       throw createContentError(
-        `Failed to read website content: ${error.message || 'Unknown error reading content'}`,
-        url
+        `Failed to read website content: ${error.message || "Unknown error reading content"}`,
+        url,
       );
     }
 
@@ -247,19 +303,31 @@ export async function fetchAndConvertToMarkdown(
     const result = applyPaginationOptions(markdownContent, paginationOptions);
 
     const duration = Date.now() - startTime;
-    logMessage(server, "info", `Successfully fetched and converted URL: ${url} (${result.length} chars in ${duration}ms)`);
+    logMessage(
+      server,
+      "info",
+      `Successfully fetched and converted URL: ${url} (${result.length} chars in ${duration}ms)`,
+    );
     return result;
   } catch (error: any) {
     if (error.name === "AbortError") {
-      logMessage(server, "error", `Timeout fetching URL: ${url} (${timeoutMs}ms)`);
+      logMessage(
+        server,
+        "error",
+        `Timeout fetching URL: ${url} (${timeoutMs}ms)`,
+      );
       throw createTimeoutError(timeoutMs, url);
     }
     // Re-throw our enhanced errors
-    if (error.name === 'MCPSearXNGError') {
-      logMessage(server, "error", `Error fetching URL: ${url} - ${error.message}`);
+    if (error.name === "MCPSearXNGError") {
+      logMessage(
+        server,
+        "error",
+        `Error fetching URL: ${url} - ${error.message}`,
+      );
       throw error;
     }
-    
+
     // Catch any unexpected errors
     logMessage(server, "error", `Unexpected error fetching URL: ${url}`, error);
     const context: ErrorContext = { url };

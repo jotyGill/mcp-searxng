@@ -9,7 +9,7 @@ import {
   createJSONError,
   createDataError,
   createNoResultsMessage,
-  type ErrorContext
+  type ErrorContext,
 } from "./error-handler.js";
 
 export async function performWebSearch(
@@ -18,40 +18,48 @@ export async function performWebSearch(
   pageno: number = 1,
   time_range?: string,
   language: string = "all",
-  safesearch?: number
+  safesearch?: number,
 ) {
   const startTime = Date.now();
-  
+
   // Build detailed log message with all parameters
   const searchParams = [
     `page ${pageno}`,
     `lang: ${language}`,
     time_range ? `time: ${time_range}` : null,
-    safesearch ? `safesearch: ${safesearch}` : null
-  ].filter(Boolean).join(", ");
-  
-  logMessage(server, "info", `Starting web search: "${query}" (${searchParams})`);
-  
+    safesearch ? `safesearch: ${safesearch}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  logMessage(
+    server,
+    "info",
+    `Starting web search: "${query}" (${searchParams})`,
+  );
+
   const searxngUrl = process.env.SEARXNG_URL;
 
   if (!searxngUrl) {
     logMessage(server, "error", "SEARXNG_URL not configured");
     throw createConfigurationError(
-      "SEARXNG_URL not set. Set it to your SearXNG instance (e.g., http://localhost:8080 or https://search.example.com)"
+      "SEARXNG_URL not set. Set it to your SearXNG instance (e.g., http://localhost:8080 or https://search.example.com)",
     );
   }
 
   // Validate that searxngUrl is a valid URL
   let parsedUrl: URL;
   try {
-    parsedUrl = new URL(searxngUrl.endsWith('/') ? searxngUrl : searxngUrl + '/');
+    parsedUrl = new URL(
+      searxngUrl.endsWith("/") ? searxngUrl : searxngUrl + "/",
+    );
   } catch (error) {
     throw createConfigurationError(
-      `Invalid SEARXNG_URL format: ${searxngUrl}. Use format: http://localhost:8080`
+      `Invalid SEARXNG_URL format: ${searxngUrl}. Use format: http://localhost:8080`,
     );
   }
 
-  const url = new URL('search', parsedUrl);
+  const url = new URL("search", parsedUrl);
 
   url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
@@ -74,7 +82,7 @@ export async function performWebSearch(
 
   // Prepare request options with headers
   const requestOptions: RequestInit = {
-    method: "GET"
+    method: "GET",
   };
 
   // Add proxy dispatcher if proxy is configured
@@ -89,10 +97,12 @@ export async function performWebSearch(
   const password = process.env.AUTH_PASSWORD;
 
   if (username && password) {
-    const base64Auth = Buffer.from(`${username}:${password}`).toString('base64');
+    const base64Auth = Buffer.from(`${username}:${password}`).toString(
+      "base64",
+    );
     requestOptions.headers = {
       ...requestOptions.headers,
-      'Authorization': `Basic ${base64Auth}`
+      Authorization: `Basic ${base64Auth}`,
     };
   }
 
@@ -101,9 +111,24 @@ export async function performWebSearch(
   if (userAgent) {
     requestOptions.headers = {
       ...requestOptions.headers,
-      'User-Agent': userAgent
+      "User-Agent": userAgent,
     };
   }
+
+  // Add common browser headers to reduce bot detection
+  requestOptions.headers = {
+    ...requestOptions.headers,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+  };
 
   // Fetch with enhanced error handling
   let response: Response;
@@ -111,12 +136,17 @@ export async function performWebSearch(
     logMessage(server, "info", `Making request to: ${url.toString()}`);
     response = await fetch(url.toString(), requestOptions);
   } catch (error: any) {
-    logMessage(server, "error", `Network error during search request: ${error.message}`, { query, url: url.toString() });
+    logMessage(
+      server,
+      "error",
+      `Network error during search request: ${error.message}`,
+      { query, url: url.toString() },
+    );
     const context: ErrorContext = {
       url: url.toString(),
       searxngUrl,
       proxyAgent: !!proxyAgent,
-      username
+      username,
     };
     throw createNetworkError(error, context);
   }
@@ -126,14 +156,19 @@ export async function performWebSearch(
     try {
       responseBody = await response.text();
     } catch {
-      responseBody = '[Could not read response body]';
+      responseBody = "[Could not read response body]";
     }
 
     const context: ErrorContext = {
       url: url.toString(),
-      searxngUrl
+      searxngUrl,
     };
-    throw createServerError(response.status, response.statusText, responseBody, context);
+    throw createServerError(
+      response.status,
+      response.statusText,
+      responseBody,
+      context,
+    );
   }
 
   // Parse JSON response
@@ -145,7 +180,7 @@ export async function performWebSearch(
     try {
       responseText = await response.text();
     } catch {
-      responseText = '[Could not read response text]';
+      responseText = "[Could not read response text]";
     }
 
     const context: ErrorContext = { url: url.toString() };
@@ -170,9 +205,16 @@ export async function performWebSearch(
   }
 
   const duration = Date.now() - startTime;
-  logMessage(server, "info", `Search completed: "${query}" (${searchParams}) - ${results.length} results in ${duration}ms`);
+  logMessage(
+    server,
+    "info",
+    `Search completed: "${query}" (${searchParams}) - ${results.length} results in ${duration}ms`,
+  );
 
   return results
-    .map((r) => `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`)
+    .map(
+      (r) =>
+        `Title: ${r.title}\nDescription: ${r.content}\nURL: ${r.url}\nRelevance Score: ${r.score.toFixed(3)}`,
+    )
     .join("\n\n");
 }
